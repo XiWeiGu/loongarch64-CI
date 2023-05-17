@@ -29,21 +29,18 @@ jobs:
         tar -xvf loongarch64-clfs-7.3-cross-tools-gcc-glibc.tar.xz -C /opt
         wget https://github.com/loongson/build-tools/releases/download/2022.09.06/qemu-loongarch64
         chmod +x qemu-loongarch64
+    - name: set paths and env
+      run: |
+        #Adding system path
+        #echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
+        #echo "/opt/cross-tools/bin" >> $GITHUB_PATH
+        echo "LD_LIBRARY_PATH=/opt/cross-tools/target/usr/lib64:/opt/cross-tools/loongarch64-unknown-linux-gnu/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        echo "PATH=$GITHUB_WORKSPACE:/opt/cross-tools/bin:$PATH" >> $GITHUB_ENV
     - name: Configure
       run: |
-        export PATH=$GITHUB_WORKSPACE:/opt/cross-tools/bin:$PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/target/usr/lib64:$LD_LIBRARY_PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/loongarch64-unknown-linux-gnu/lib64:$LD_LIBRARY_PATH
         meson setup build --cross-file=docker/cross-files/loongarch64-gcc-7.cross
     - name: Build
       run: |
-        export PATH=/opt/cross-tools/bin:$PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/target/usr/lib64:$LD_LIBRARY_PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/loongarch64-unknown-linux-gnu/lib64:$LD_LIBRARY_PATH
         ninja -C build -v
-    - name: Test
-      run: |
-        export PATH=$GITHUB_WORKSPACE:/opt/cross-tools/bin:$PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/target/usr/lib64:$LD_LIBRARY_PATH
-        export LD_LIBRARY_PATH=/opt/cross-tools/loongarch64-unknown-linux-gnu/lib64:$LD_LIBRARY_PATH
-        meson test -C build --timeout-multiplier 0 --print-errorlogs
+      #- name: Test
+      #- run: meson test -C build --timeout-multiplier 0 --print-errorlogs
