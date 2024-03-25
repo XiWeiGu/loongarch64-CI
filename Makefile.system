@@ -706,7 +706,7 @@ endif
 endif
 
 ifeq ($(ARCH), loongarch64)
-DYNAMIC_CORE = LOONGSON3R5 LOONGSON2K1000 LOONGSONGENERIC
+DYNAMIC_CORE = LOONGSON2K1000 LOONGSONGENERIC
 endif
 
 ifeq ($(ARCH), zarch)
@@ -955,6 +955,7 @@ endif
 
 ifeq ($(ARCH), loongarch64)
 LA64_ABI=$(shell $(CC) -mabi=lp64d -c $(TOPDIR)/cpuid_loongarch64.c -o /dev/null > /dev/null 2> /dev/null && echo lp64d)
+$(warning $(LA64_ABI))
 ifneq ($(LA64_ABI), lp64d)
 LA64_ABI=lp64
 endif

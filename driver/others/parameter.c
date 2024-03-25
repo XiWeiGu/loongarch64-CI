@@ -739,6 +739,46 @@ void blas_set_parameter(void){
 }
 #endif
 
+#if defined(ARCH_LOONGARCH64)
+int get_L3_size() {
+  int ret = 0, id = 0x14;
+  __asm__ volatile (
+    "cpucfg %[ret], %[id]"
+    : [ret]"=r"(ret)
+    : [id]"r"(id)
+    : "memory"
+  );
+  return ((ret & 0xffff) + 1) * pow(2, ((ret >> 16) & 0xff)) * pow(2, ((ret >> 24) & 0x7f)) / 1024 / 1024; // MB
+}
+
+void blas_set_parameter(void){
+#if defined(LOONGSON3R5)
+  int L3_size = get_L3_size();
+#ifdef SMP
+  if(blas_num_threads == 1){
+#endif
+    //single thread
+    if (L3_size == 32)
+      dgemm_r = 4096;
+    else if (L3_size == 16)
+      dgemm_r = 2916;
+    else
+      dgemm_r = 1024;
+#ifdef SMP
+  }else{
+    //multi thread
+    if (L3_size == 32)
+      dgemm_r = 342;
+    else if (L3_size == 16)
+      dgemm_r = 858;
+    else
+      dgemm_r = 512;
+  }
+#endif
+#endif
+}
+#endif
+
 #if defined(ARCH_ARM64)
 
 void blas_set_parameter(void)

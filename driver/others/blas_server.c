@@ -484,6 +484,11 @@ blas_queue_t *tscq;
       main_status[cpu] = MAIN_RUNNING1;
 #endif
 
+// For Loongson servers, such as the 3C5000 (with 16 cores), it is necessary to apply
+// an offset to the buffer to reduce cache conflicts in order to achieve better performance.
+#if NUM_CORES > 15 && defined(LOONGSON3R5) && !defined(NO_AFFINITY)
+      if (sa == NULL) sa = (void *)((BLASLONG)buffer + (WhereAmI() & 0xf) * GEMM_OFFSET_A);
+#endif
       if (sa == NULL) sa = (void *)((BLASLONG)buffer + GEMM_OFFSET_A);
 
       if (sb == NULL) {

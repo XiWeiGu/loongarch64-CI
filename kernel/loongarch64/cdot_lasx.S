@@ -156,7 +156,6 @@ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     xvfmadd.d res2, x2, x3, res2
     xvfmadd.d res3, x1, x4, res3
     xvfmadd.d res4, x2, x4, res4
-    fsub.s f0, f1, f2
 #else
     ld.w t1, Y, 0 * SIZE
     ld.w t2, Y, 1 * SIZE
