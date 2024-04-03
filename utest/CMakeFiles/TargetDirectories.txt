@@ -1,0 +1,4 @@
+/Users/guxiwei/Documents/gxw-github/OpenBLAS/utest/CMakeFiles/openblas_utest.dir
+/Users/guxiwei/Documents/gxw-github/OpenBLAS/utest/CMakeFiles/openblas_utest_ext.dir
+/Users/guxiwei/Documents/gxw-github/OpenBLAS/utest/CMakeFiles/edit_cache.dir
+/Users/guxiwei/Documents/gxw-github/OpenBLAS/utest/CMakeFiles/rebuild_cache.dir

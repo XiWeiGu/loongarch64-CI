@@ -1,204 +1,100 @@
-cmake_minimum_required(VERSION 3.0)
+include_directories(${PROJECT_SOURCE_DIR})
+include_directories(${PROJECT_BINARY_DIR})
 
-project(simde-tests)
-
-set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
-include (ExtraWarningFlags)
-
-enable_testing()
-
-option(BUILD_CPP_TESTS "Build C++ tests" ON)
-
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/munit/munit.c")
-  find_program(GIT git)
-  if(GIT)
-    execute_process(COMMAND ${GIT} submodule update --init --recursive)
-  else()
-    message (FATAL_ERROR "It looks like you don't have submodules checked out.  Please run `git submodule update --init --recursive'")
-  endif()
+enable_language(Fortran)
+if (CMAKE_Fortran_COMPILER_ID STREQUAL GNU)
+        set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fno-tree-vectorize")
+endif()
+if (CMAKE_Fortran_COMPILER_ID STREQUAL Flang)
+	set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -O2")
 endif()
 
-if(CMAKE_BUILD_TYPE STREQUAL "")
-  set(CMAKE_BUILD_TYPE "Debug")
-elseif(CMAKE_BUILD_TYPE STREQUAL "Coverage")
-  set(orig_req_libs "${CMAKE_REQUIRED_LIBRARIES}")
-  set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES};--coverage")
-  check_c_compiler_flag("--coverage" CFLAG___coverage)
-  set(CMAKE_REQUIRED_LIBRARIES "${orig_req_libs}")
-
-  if(CFLAG___coverage)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_C_FLAGS} --coverage")
-    add_definitions("-DSIMDE_NO_INLINE")
-  else()
-    set(CMAKE_BUILD_TYPE "Debug")
-  endif()
+if (BUILD_SINGLE)
+	list( APPEND OpenBLAS_Tests sblat1 sblat2 sblat3)
+endif()
+if (BUILD_DOUBLE)
+	list (APPEND OpenBLAS_Tests dblat1 dblat2 dblat3)
+endif()
+if (BUILD_COMPLEX)
+	list (APPEND OpenBLAS_Tests cblat1 cblat2 cblat3)
+endif()
+if (BUILD_COMPLEX16)
+	list (APPEND OpenBLAS_Tests zblat1 zblat2 zblat3)
 endif()
 
-add_library(munit STATIC munit/munit.c)
+if (USE_GEMM3M)
+	if (BUILD_COMPLEX)
+		list (APPEND OpenBLAS_Tests cblat3_3m)
+	endif ()
+	if (BUILD_COMPLEX16)
+		list (APPEND OpenBLAS_Tests zblat3_3m)
+	endif ()
+endif ()
 
-include(CheckSymbolExists)
-check_symbol_exists(clock_gettime "time.h" CLOCK_GETTIME_RES)
-if(CLOCK_GETTIME_RES)
-  set(CLOCK_GETTIME_EXISTS yes)
+foreach(test_bin ${OpenBLAS_Tests})
+	add_executable(${test_bin} ${test_bin}.f)
+target_link_libraries(${test_bin} ${OpenBLAS_LIBNAME})
+if (USE_OPENMP AND (${CMAKE_Fortran_COMPILER_ID} STREQUAL GNU) AND (${CMAKE_C_COMPILER_ID} STREQUAL Clang))
+	string(REGEX REPLACE "-fopenmp" "" CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}")
+target_link_libraries(${test_bin} omp pthread)
+endif()
+endforeach()
+
+# $1 exec, $2 input, $3 output_result
+if(WIN32)
+FILE(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test_helper.ps1
+"[Console]::InputEncoding = New-Object Text.UTF8Encoding $false\n"
+"if (Test-Path $args[2]) { Remove-Item -Force $args[2] } \n"
+"$ErrorActionPreference = \"Stop\"\n"
+"Get-Content $args[1] | & $args[0]\n" 
+"If ((Get-Content $args[2] | %{$_ -match \"FATAL\"}) -contains $true) {\n"
+"echo Error\n"
+"exit 1\n"
+"} else {\n"
+"exit 0\n"
+"}\n"
+)
+set(helper_prefix powershell -ExecutionPolicy Bypass "${CMAKE_CURRENT_BINARY_DIR}/test_helper.ps1")
 else()
-  set(orig_req_libs "${CMAKE_REQUIRED_LIBRARIES}")
-  set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES};rt")
-
-  check_symbol_exists(clock_gettime "time.h" CLOCK_GETTIME_LIBRT_RES)
-  if(CLOCK_GETTIME_LIBRT_RES)
-    set(CLOCK_GETTIME_EXISTS yes)
-    set(CLOCK_GETTIME_LIBRARY "rt")
-  endif()
-
-  set(CMAKE_REQUIRED_LIBRARIES "${orig_req_libs}")
-  unset(orig_req_libs)
+FILE(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test_helper.sh
+"rm -f $3\n"
+"$1 < $2\n"
+"grep -q FATAL $3\n"
+"if [ $? -eq 0 ]; then\n"
+"echo Error\n"
+"exit 1\n"
+"else\n"
+"exit 0\n"
+"fi\n"
+)
+set(helper_prefix sh "${CMAKE_CURRENT_BINARY_DIR}/test_helper.sh")
 endif()
 
-check_symbol_exists(fegetround "fenv.h" FEGETROUND_EXISTS)
-if(NOT FEGETROUND_EXISTS)
-  unset(FEGETROUND_EXISTS CACHE)
-  list(APPEND CMAKE_REQUIRED_LIBRARIES m)
-  check_symbol_exists(fegetround "fenv.h" FEGETROUND_EXISTS)
-  if(FEGETROUND_EXISTS)
-    set(NEED_LIBM True)
-  else()
-    message(FATAL_ERROR "Unable to find fegetround")
-  endif()
-endif(NOT FEGETROUND_EXISTS)
-
-set_property(TARGET munit PROPERTY C_STANDARD "99")
-if("${CLOCK_GETTIME_EXISTS}")
-  target_compile_definitions(munit PRIVATE "MUNIT_ALLOW_CLOCK_GETTIME")
-  target_link_libraries(munit "${CLOCK_GETTIME_LIBRARY}")
+#set(float_types s d c z)
+if (BUILD_SINGLE)
+	list (APPEND float_types s)
 endif()
-
-if("${OPENMP_SIMD_FLAGS}" STREQUAL "")
-  foreach(omp_simd_flag "-fopenmp-simd" "-qopenmp-simd")
-    string (REGEX REPLACE "[^a-zA-Z0-9]+" "_" omp_simd_flag_name "CFLAG_${omp_simd_flag}")
-    check_c_compiler_flag("${omp_simd_flag}" "${omp_simd_flag_name}")
-
-    if(${omp_simd_flag_name})
-      set(OPENMP_SIMD_FLAGS "-DSIMDE_ENABLE_OPENMP ${omp_simd_flag}")
-      break()
-    endif()
-  endforeach()
+if (BUILD_DOUBLE)
+	list (APPEND float_types d)
 endif()
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OPENMP_SIMD_FLAGS}")
-
-if("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
-  add_definitions(-DSIMDE_FAST_MATH)
+if (BUILD_COMPLEX)
+	list (APPEND float_types c)
 endif()
-
-include_directories("${CMAKE_CURRENT_BINARY_DIR}")
-
-function(generate_declare_suites OUTFILE SOURCES)
-  file(WRITE "${OUTFILE}" "")
-  foreach(SOURCE ${SOURCES})
-    get_filename_component(SUITE ${SOURCE} NAME_WLE)
-    string(REPLACE "." "_" SUITE "${SUITE}")
-    # message(FATAL_ERROR "${SUITE}")
-    file(APPEND "${OUTFILE}" "SIMDE_TEST_DECLARE_SUITE(${SUITE})\n")
-  endforeach(SOURCE ${SOURCES})
-endfunction(generate_declare_suites)
-
-aux_source_directory("arm/neon" ARM_NEON_SOURCES_C)
-list(REMOVE_ITEM ARM_NEON_SOURCES_C "arm/neon/run-tests.c")
-list(REMOVE_ITEM ARM_NEON_SOURCES_C "arm/neon/skel.c")
-list(REMOVE_ITEM ARM_NEON_SOURCES_C "arm/neon/skel-single.c")
-list(REMOVE_ITEM ARM_NEON_SOURCES_C "arm/neon/skel-triple.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/arm/neon/declare-suites.h" "${ARM_NEON_SOURCES_C}")
-
-aux_source_directory("arm/sve" ARM_SVE_SOURCES_C)
-list(REMOVE_ITEM ARM_SVE_SOURCES_C "arm/sve/run-tests.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/arm/sve/declare-suites.h" "${ARM_SVE_SOURCES_C}")
-
-aux_source_directory("x86/avx512" X86_AVX512_SOURCES_C)
-list(REMOVE_ITEM X86_AVX512_SOURCES_C "x86/avx512/run-tests.c")
-list(REMOVE_ITEM X86_AVX512_SOURCES_C "x86/avx512/skel.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/x86/avx512/declare-suites.h" "${X86_AVX512_SOURCES_C}")
-
-aux_source_directory("x86" X86_SOURCES_C)
-list(REMOVE_ITEM X86_SOURCES_C "x86/skel.c")
-list(REMOVE_ITEM X86_SOURCES_C "x86/run-tests.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/x86/declare-suites.h" "${X86_SOURCES_C}")
-
-aux_source_directory("wasm/simd128" WASM_SIMD128_SOURCES_C)
-list(REMOVE_ITEM WASM_SIMD128_SOURCES_C "wasm/simd128/run-tests.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/wasm/simd128/declare-suites.h" "${WASM_SIMD128_SOURCES_C}")
-
-aux_source_directory("wasm/relaxed-simd" WASM_RELAXED_SIMD_SOURCES_C)
-list(REMOVE_ITEM WASM_RELAXED_SIMD_SOURCES_C "wasm/relaxed-simd/run-tests.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/wasm/relaxed-simd/declare-suites.h" "${WASM_RELAXED_SIMD_SOURCES_C}")
-
-aux_source_directory("mips/msa" MIPS_MSA_SOURCES_C)
-list(REMOVE_ITEM MIPS_MSA_SOURCES_C "mips/msa/run-tests.c")
-generate_declare_suites("${CMAKE_CURRENT_BINARY_DIR}/test/mips/msa/declare-suites.h" "${MIPS_MSA_SOURCES_C}")
-
-set(TEST_SOURCES_C
-  ${X86_SOURCES_C}
-  ${X86_AVX512_SOURCES_C}
-  ${ARM_NEON_SOURCES_C}
-  ${ARM_SVE_SOURCES_C}
-  ${WASM_SIMD128_SOURCES_C}
-  ${WASM_RELAXED_SIMD_SOURCES_C}
-  ${MIPS_MSA_SOURCES_C})
-
-set(TEST_RUNNER_SOURCES
-  run-tests.c
-  x86/run-tests.c
-  x86/avx512/run-tests.c
-  arm/run-tests.c
-  arm/neon/run-tests.c
-  arm/sve/run-tests.c
-  wasm/run-tests.c
-  wasm/simd128/run-tests.c
-  wasm/relaxed-simd/run-tests.c
-  mips/run-tests.c
-  mips/msa/run-tests.c)
-add_executable(run-tests ${TEST_RUNNER_SOURCES})
-set_property(TARGET run-tests PROPERTY C_STANDARD "99")
-target_add_compiler_flags(run-tests "-Wno-psabi")
-
-target_link_libraries(run-tests munit)
-target_add_compiler_flags (munit "-w")
-if(NEED_LIBM)
-  target_link_libraries(run-tests m)
-endif(NEED_LIBM)
-
-set(TEST_SOURCES_CPP)
-if(BUILD_CPP_TESTS)
-  foreach(csource ${TEST_SOURCES_C})
-    configure_file("${csource}" "${CMAKE_CURRENT_BINARY_DIR}/${csource}pp")
-    list(APPEND TEST_SOURCES_CPP "${CMAKE_CURRENT_BINARY_DIR}/${csource}pp")
-
-    get_filename_component(DIR "${csource}" DIRECTORY)
-    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${csource}pp" APPEND PROPERTY COMPILE_FLAGS " -I${CMAKE_CURRENT_SOURCE_DIR}/${DIR}")
-  endforeach()
-
-  add_definitions(-DSIMDE_BUILD_CPP_TESTS)
-endif(BUILD_CPP_TESTS)
-
-add_definitions(-DSIMDE_CONSTRAINED_COMPILATION)
-
-foreach(native native emul)
-  add_library(simde-test-${native} STATIC ${TEST_SOURCES_C} ${TEST_SOURCES_CPP})
-
-  target_include_directories(simde-test-${native} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
-  set_property(TARGET simde-test-${native} PROPERTY C_STANDARD "99")
-
-  target_link_libraries(run-tests simde-test-${native})
-  target_add_compiler_flags(simde-test-${native} "-Wno-psabi")
-endforeach(native native emul)
-target_compile_definitions(simde-test-emul PRIVATE SIMDE_NO_NATIVE)
-
-foreach(src ${TEST_SOURCES_C})
-  string(REGEX REPLACE "^(.+)\\.c$" "/\\1" TEST_NAME "${src}")
-  add_test(NAME "${TEST_NAME}" COMMAND $<TARGET_FILE:run-tests> "${TEST_NAME}")
-endforeach(src ${TEST_SOURCES_C})
-
-message(WARNING
-        "CMake support is deprecated; please use Meson instead.  CMake is only present "
-        "for compilers which Meson doesn't yet support (e.g., xlc) and platforms where "
-        "difficult to run an up-to-date copy of Meson (e.g., Ubuntu 12.04).")
+if (BUILD_COMPLEX16)
+	list (APPEND float_types z)
+endif()
+foreach(float_type ${float_types})
+string(TOUPPER ${float_type} float_type_upper)
+add_test(NAME "${float_type}blas1" 
+  COMMAND $<TARGET_FILE:${float_type}blat1>)
+add_test(NAME "${float_type}blas2" 
+  COMMAND ${helper_prefix} $<TARGET_FILE:${float_type}blat2> "${PROJECT_SOURCE_DIR}/test/${float_type}blat2.dat" ${float_type_upper}BLAT2.SUMM)
+add_test(NAME "${float_type}blas3" 
+  COMMAND ${helper_prefix} $<TARGET_FILE:${float_type}blat3> "${PROJECT_SOURCE_DIR}/test/${float_type}blat3.dat" ${float_type_upper}BLAT3.SUMM)
+if (USE_GEMM3M)
+if ((${float_type} STREQUAL "c") OR (${float_type} STREQUAL "z"))
+add_test(NAME "${float_type}blas3_3m" 
+  COMMAND ${helper_prefix} $<TARGET_FILE:${float_type}blat3_3m> "${PROJECT_SOURCE_DIR}/test/${float_type}blat3_3m.dat" ${float_type_upper}BLAT3_3M.SUMM)
+endif()
+endif()
+endforeach()
