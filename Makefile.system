@@ -959,8 +959,8 @@ $(warning $(LA64_ABI))
 ifneq ($(LA64_ABI), lp64d)
 LA64_ABI=lp64
 endif
-CCOMMON_OPT += -march=loongarch64 -mabi=$(LA64_ABI)
-FCOMMON_OPT += -march=loongarch64 -mabi=$(LA64_ABI)
+CCOMMON_OPT += -mabi=$(LA64_ABI)
+FCOMMON_OPT += -mabi=$(LA64_ABI)
 endif
 
 endif
